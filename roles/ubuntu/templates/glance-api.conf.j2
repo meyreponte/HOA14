@@ -1,0 +1,34 @@
+[database]
+connection = mysql+pymysql://glance:reponte13@192.168.56.104/glance
+
+[keystone_authtoken]
+www_authenticate_uri = http://192.168.56.104:5000
+auth_url = http://192.168.56.104:5000
+memcached_servers = 192.168.56.104:11211
+auth_type = password
+project_domain_name = Default
+user_domain_name = Default
+project_name = service
+username = glance
+password = reponte13
+
+[paste_deploy]
+flavor = keystone
+
+[glance_store]
+stores = file,http
+default_store = file
+filesystem_store_datadir = /var/lib/glance/images/
+
+[oslo_limit]
+auth_url = http://192.168.56.104:5000
+auth_type = password
+user_domain_id = default
+username = MY_SERVICE
+system_scope = all
+password = MY_PASSWORD
+endpoint_id = ENDPOINT_ID
+region_name = RegionOne
+
+[DEFAULT]
+use_keystone_quotas = True

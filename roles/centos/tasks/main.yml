@@ -1,0 +1,221 @@
+---
+- name: Install required packages
+  yum:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - openstack-keystone
+    - httpd
+    - mod_wsgi
+
+- name: Configure Keystone database access
+  blockinfile:
+    path: /etc/keystone/keystone.conf
+    block: |
+      [database]
+      connection = mysql+pymysql://keystone:KEYSTONE_DBPASS@controller/keystone
+
+- name: Configure Fernet token provider
+  blockinfile:
+    path: /etc/keystone/keystone.conf
+    block: |
+      [token]
+      provider = fernet
+
+- name: Populate Keystone database
+  shell: "su -s /bin/sh -c 'keystone-manage db_sync' keystone"
+  failed_when: false
+  
+
+- name: Initialize Fernet key repositories
+  shell: "keystone-manage fernet_setup --keystone-user keystone --keystone-group keystone"
+  failed_when: false
+  no_log: true
+
+    
+- name: Bootstrap Keystone
+  command: >
+    keystone-manage bootstrap
+    --bootstrap-password ADMIN_PASS
+    --bootstrap-admin-url http://controller:5000/v3/
+    --bootstrap-internal-url http://controller:5000/v3/
+    --bootstrap-public-url http://controller:5000/v3/
+    --bootstrap-region-id RegionOne
+  failed_when: false
+
+- name: Configure Apache HTTP server
+  blockinfile:
+    path: /etc/httpd/conf/httpd.conf
+    block: |
+      ServerName controller
+
+- name: Create symlink for Keystone WSGI configuration
+  file:
+    src: /usr/share/keystone/wsgi-keystone.conf
+    dest: /etc/httpd/conf.d/wsgi-keystone.conf
+    state: link
+    force: yes
+  become: yes
+
+- name: Start and enable Apache HTTP service
+  systemd:
+    name: httpd
+    state: started
+    enabled: true
+
+- name: Set environmental variables for administrative account
+  lineinfile:
+    path: /etc/environment
+    line: "{{ item }}"
+  loop:
+    - "export OS_USERNAME=admin"
+    - "export OS_PASSWORD=ADMIN_PASS"
+    - "export OS_PROJECT_NAME=admin"
+    - "export OS_USER_DOMAIN_NAME=Default"
+    - "export OS_PROJECT_DOMAIN_NAME=Default"
+    - "export OS_AUTH_URL=http://controller:5000/v3"
+    - "export OS_IDENTITY_API_VERSION=3"
+    
+# Glance
+- name: Install OpenStack Glance packages
+  yum:
+    name: openstack-glance
+    state: present
+
+- name: Configure glance-api.conf
+  blockinfile:
+    path: /etc/glance/glance-api.conf
+    block: |
+      [database]
+      connection = mysql+pymysql://glance:GLANCE_DBPASS@controller/glance
+
+      [keystone_authtoken]
+      www_authenticate_uri  = http://controller:5000
+      auth_url = http://controller:5000
+      memcached_servers = controller:11211
+      auth_type = password
+      project_domain_name = Default
+      user_domain_name = Default
+      project_name = service
+      username = glance
+      password = GLANCE_PASS
+
+      [paste_deploy]
+      flavor = keystone
+
+      [glance_store]
+      stores = file,http
+      default_store = file
+      filesystem_store_datadir = /var/lib/glance/images/
+
+- name: Populate the Glance database
+  shell: "su -s /bin/sh -c 'glance-manage db_sync' glance"
+  failed_when: false
+  no_log: true
+  
+- name: Restart Glance
+  systemd:
+    name: openstack-glance-api
+    state: restarted
+
+- name: Enable Glance on boot
+  systemd:
+    name: openstack-glance-api
+    enabled: yes
+
+# Nova
+- name: Install OpenStack Nova packages
+  yum:
+    name: "openstack-nova-api,openstack-nova-conductor,openstack-nova-novncproxy,openstack-nova-scheduler"
+    state: present
+
+- name: Configure nova.conf
+  blockinfile:
+    path: /etc/nova/nova.conf
+    block: |
+      [DEFAULT]
+      enabled_apis = osapi_compute,metadata
+      my_ip = 10.0.0.11
+      use_neutron = true
+      firewall_driver = nova.virt.firewall.NoopFirewallDriver
+
+      [api_database]
+      connection = mysql+pymysql://nova:NOVA_DBPASS@controller/nova_api
+
+      [database]
+      connection = mysql+pymysql://nova:NOVA_DBPASS@controller/nova
+
+      [DEFAULT]
+      transport_url = rabbit://openstack:RABBIT_PASS@controller:5672/
+
+      [api]
+      auth_strategy = keystone
+
+      [keystone_authtoken]
+      www_authenticate_uri = http://controller:5000/
+      auth_url = http://controller:5000/
+      memcached_servers = controller:11211
+      auth_type = password
+      project_domain_name = Default
+      user_domain_name = Default
+      project_name = service
+      username = nova
+      password = NOVA_PASS
+
+      [vnc]
+      enabled = true
+      server_listen = $my_ip
+      server_proxyclient_address = $my_ip
+
+      [glance]
+      api_servers = http://controller:9292
+
+      [oslo_concurrency]
+      lock_path = /var/lib/nova/tmp
+
+      [placement]
+      region_name = RegionOne
+      project_domain_name = Default
+      project_name = service
+      auth_type = password
+      user_domain_name = Default
+      auth_url = http://controller:5000/v3
+      username = placement
+      password = PLACEMENT_PASS
+
+- name: Populate nova-api database
+  shell: "su -s /bin/sh -c 'nova-manage api_db sync' nova"
+  failed_when: false
+  no_log: true
+
+
+- name: Register cell0 database
+  shell: "su -s /bin/sh -c 'nova-manage cell_v2 map_cell0' nova"
+  failed_when: false
+  no_log: true
+
+
+- name: Create cell1 cell
+  shell: "su -s /bin/sh -c 'nova-manage cell_v2 create_cell --name=cell1 --verbose' nova"
+  failed_when: false
+  no_log: true
+  
+- name: Restart Nova
+  systemd:
+    name: "{{ item }}"
+    state: restarted
+  with_items:
+    - openstack-nova-api
+    - openstack-nova-scheduler
+    - openstack-nova-conductor
+    - openstack-nova-novncproxy
+
+- name: Enable Nova on boot
+  systemd:
+    name: "{{ item }}"
+    enabled: yes
+  with_items:
+    - openstack-nova-api
+    - openstack-nova-scheduler
+    - openstack-nova-conductor
+    - openstack-nova-novncproxy
