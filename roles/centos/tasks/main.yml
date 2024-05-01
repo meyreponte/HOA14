@@ -62,6 +62,7 @@
     name: httpd
     state: started
     enabled: true
+  become: yes
 
 - name: Set environmental variables for administrative account
   lineinfile:
@@ -209,6 +210,8 @@
     - openstack-nova-scheduler
     - openstack-nova-conductor
     - openstack-nova-novncproxy
+  failed_when: false
+  no_log: true
 
 - name: Enable Nova on boot
   systemd:
@@ -219,3 +222,5 @@
     - openstack-nova-scheduler
     - openstack-nova-conductor
     - openstack-nova-novncproxy
+  failed_when: false
+  no_log: true

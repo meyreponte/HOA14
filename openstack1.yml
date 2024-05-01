@@ -19,12 +19,12 @@
 #      update_cache: yes
 #    when: ansible_distribution == "Ubuntu"
 
-- hosts: ubuntu
-  become: true
-  roles:
-    - name: ubuntu
-
-#- hosts: centos
+#- hosts: ubuntu
 #  become: true
 #  roles:
-#    - name: centos
+#    - name: ubuntu
+
+- hosts: centos
+  become: true
+  roles:
+    - name: centos

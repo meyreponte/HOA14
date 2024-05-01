@@ -12,6 +12,7 @@
 
 - name: Run keystone-manage db_sync
   shell: su -s /bin/sh -c "keystone-manage db_sync" keystone
+  failed_when: false
   no_log: true
 
 - name: Run keystone-manage fernet_setup
@@ -32,6 +33,7 @@
         --bootstrap-internal-url http://controller:5000/v3/ \
         --bootstrap-public-url http://controller:5000/v3/ \
         --bootstrap-region-id RegionOne
+  failed_when: false
   no_log: true
 
 - name: Configure ServerName in apache2.conf
@@ -265,9 +267,13 @@
   
 - name: Register cell0 database
   command: "su -s /bin/sh -c 'nova-manage cell_v2 map_cell0' nova"
+  failed_when: false
+  no_log: true
   
 - name: Create cell1
   command: "su -s /bin/sh -c 'nova-manage cell_v2 create_cell --name=cell1 --verbose' nova"
+  failed_when: false
+  no_log: true
   
 - name: Verify nova cells
   shell: "su -s /bin/sh -c 'nova-manage cell_v2 list_cells' nova"
